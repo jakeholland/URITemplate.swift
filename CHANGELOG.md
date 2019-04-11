@@ -14,4 +14,8 @@
 
 ## 2.0.1
 
-Internal refactoring to prevent use of deprecated system APIs.
+- Internal refactoring to prevent use of deprecated system APIs.
+
+## 2.0.4
+
+- Adds Swift 5.0 support.

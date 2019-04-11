@@ -1,6 +1,6 @@
 Pod::Spec.new do |spec|
   spec.name = 'URITemplate'
-  spec.version = '2.0.3'
+  spec.version = '2.0.4'
   spec.summary = 'Swift library for dealing with URI Templates (RFC6570)'
   spec.homepage = 'https://github.com/kylef/URITemplate.swift'
   spec.license = { :type => 'MIT', :file => 'LICENSE' }
@@ -13,5 +13,5 @@ Pod::Spec.new do |spec|
   spec.watchos.deployment_target = '2.0'
   spec.tvos.deployment_target = '9.0'
   spec.requires_arc = true
+  spec.swift_version = '5.0'
 end
-
