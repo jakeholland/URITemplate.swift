@@ -16,13 +16,11 @@ public struct URITemplate: CustomStringConvertible, Equatable, Hashable, Express
   public let template: String
 
   var regex: NSRegularExpression {
-    let expression: NSRegularExpression?
     do {
-      expression = try NSRegularExpression(pattern: "\\{([^\\}]+)\\}", options: NSRegularExpression.Options(rawValue: 0))
-    } catch let error as NSError {
+      return try NSRegularExpression(pattern: "\\{([^\\}]+)\\}", options: NSRegularExpression.Options(rawValue: 0))
+    } catch {
       fatalError("Invalid Regex \(error)")
     }
-    return expression!
   }
 
   var operators: [Operator] {
@@ -58,13 +56,9 @@ public struct URITemplate: CustomStringConvertible, Equatable, Hashable, Express
   }
 
   /// Returns a description of the URITemplate
-  public var description: String {
-    return template
-  }
+  public var description: String { return template }
 
-  public var hashValue: Int {
-    return template.hashValue
-  }
+  public var hashValue: Int { return template.hashValue }
 
   /// Returns the set of keywords in the URI Template
   public var variables: [String] {
@@ -91,7 +85,7 @@ public struct URITemplate: CustomStringConvertible, Equatable, Hashable, Express
           return component
         }
       }
-    }.reduce([], +)
+      }.reduce([], +)
   }
 
   /// Expand template as a URI Template using the given variables
@@ -101,12 +95,9 @@ public struct URITemplate: CustomStringConvertible, Equatable, Hashable, Express
       let firstCharacter = String(expression[..<expression.index(after: expression.startIndex)])
 
       var op = self.operators.filter {
-        if let op = $0.op {
-          return op == firstCharacter
-        }
-
-        return false
-      }.first
+        guard let op = $0.op else { return false }
+        return op == firstCharacter
+        }.first
 
       if op != nil {
         expression = String(expression[expression.index(after: expression.startIndex)...])
@@ -144,7 +135,7 @@ public struct URITemplate: CustomStringConvertible, Equatable, Hashable, Express
         return accumulator
       })
 
-      if expansions.count > 0 {
+      if !expansions.isEmpty {
         return op!.prefix + expansions.joined(separator: op!.joiner)
       }
 
@@ -163,9 +154,7 @@ public struct URITemplate: CustomStringConvertible, Equatable, Hashable, Express
   func regexForExpression(_ expression: String) -> String {
     var expression = expression
 
-    let op = operators.filter {
-      $0.op != nil && expression.hasPrefix($0.op!)
-    }.first
+    let op = operators.first(where: { $0.op != nil && expression.hasPrefix($0.op!) })
 
     if op != nil {
       expression = String(expression[expression.index(after: expression.startIndex)..<expression.endIndex])
@@ -178,24 +167,23 @@ public struct URITemplate: CustomStringConvertible, Equatable, Hashable, Express
     return regexes.joined(separator: (op ?? StringExpansion()).joiner)
   }
 
-  var extractionRegex:NSRegularExpression? {
-    let regex = try! NSRegularExpression(pattern: "(\\{([^\\}]+)\\})|[^(.*)]", options: NSRegularExpression.Options(rawValue: 0))
+  var extractionRegex: NSRegularExpression? {
+    guard let regex = try? NSRegularExpression(pattern: "(\\{([^\\}]+)\\})|[^(.*)]", options: NSRegularExpression.Options(rawValue: 0)) else { return nil }
 
     let pattern = regex.substitute(self.template) { expression in
-      if expression.hasPrefix("{") && expression.hasSuffix("}") {
-        let startIndex = expression.characters.index(after: expression.startIndex)
-        let endIndex = expression.characters.index(before: expression.endIndex)
-        return self.regexForExpression(String(expression[startIndex..<endIndex]))
-      } else {
-        return NSRegularExpression.escapedPattern(for: expression)
+      guard
+        expression.hasPrefix("{"),
+        expression.hasSuffix("}")
+        else {
+          return NSRegularExpression.escapedPattern(for: expression)
       }
+
+      let startIndex = expression.index(after: expression.startIndex)
+      let endIndex = expression.index(before: expression.endIndex)
+      return self.regexForExpression(String(expression[startIndex..<endIndex]))
     }
 
-    do {
-      return try NSRegularExpression(pattern: "^\(pattern)$", options: NSRegularExpression.Options(rawValue: 0))
-    } catch _ {
-      return nil
-    }
+    return try? NSRegularExpression(pattern: "^\(pattern)$", options: NSRegularExpression.Options(rawValue: 0))
   }
 
   /// Extract the variables used in a given URL
@@ -249,9 +237,7 @@ extension NSRegularExpression {
     let range = NSRange(location: 0, length: input.length)
     let results = self.matches(in: string, options: NSRegularExpression.MatchingOptions(rawValue: 0), range: range)
 
-    return results.map { result -> String in
-      return input.substring(with: result.range)
-    }
+    return results.map { input.substring(with: $0.range) }
   }
 }
 
@@ -279,20 +265,18 @@ protocol Operator {
 class BaseOperator {
   var joiner: String { return "," }
 
-  func expand(_ variable:String, value: Any?, explode:Bool, prefix:Int?) -> String? {
-    if let value = value {
-      if let values = value as? [String: Any] {
-        return expand(variable:variable, value: values, explode: explode)
-      } else if let values = value as? [Any] {
-        return expand(variable:variable, value: values, explode: explode)
-      } else if let _ = value as? NSNull {
-        return expand(variable:variable)
-      } else {
-        return expand(variable:variable, value:"\(value)", prefix:prefix)
-      }
-    }
+  func expand(_ variable: String, value: Any?, explode: Bool, prefix: Int?) -> String? {
+    guard let value = value else { return expand(variable:variable) }
 
-    return expand(variable:variable)
+    if let values = value as? [String: Any] {
+      return expand(variable:variable, value: values, explode: explode)
+    } else if let values = value as? [Any] {
+      return expand(variable:variable, value: values, explode: explode)
+    } else if let _ = value as? NSNull {
+      return expand(variable:variable)
+    } else {
+      return expand(variable:variable, value:"\(value)", prefix:prefix)
+    }
   }
 
   // Point to overide to expand a value (i.e, perform encoding)
@@ -302,18 +286,14 @@ class BaseOperator {
 
   // Point to overide to expanding a string
   func expand(variable: String, value: String, prefix: Int?) -> String {
-    if let prefix = prefix {
-      if value.characters.count > prefix {
-        let index = value.index(value.startIndex, offsetBy: prefix, limitedBy: value.endIndex)
-        return expand(value: String(value[..<index!]))
-      }
-    }
+    guard let prefix = prefix, value.count > prefix else { return expand(value: value) }
 
-    return expand(value: value)
+    let index = value.index(value.startIndex, offsetBy: prefix, limitedBy: value.endIndex)
+    return expand(value: String(value[..<index!]))
   }
 
   // Point to overide to expanding an array
-  func expand(variable:String, value:[Any], explode:Bool) -> String? {
+  func expand(variable: String, value: [Any], explode: Bool) -> String? {
     let joiner = explode ? self.joiner : ","
     return value.map { self.expand(value: "\($0)") }.joined(separator: joiner)
   }
@@ -381,11 +361,9 @@ class LabelExpansion : BaseOperator, Operator {
   }
 
   override func expand(variable: String, value: [Any], explode: Bool) -> String? {
-    if value.count > 0 {
-      return super.expand(variable: variable, value: value, explode: explode)
-    }
+    guard value.count > 0 else { return nil }
 
-    return nil
+    return super.expand(variable: variable, value: value, explode: explode)
   }
 }
 
@@ -400,11 +378,9 @@ class PathSegmentExpansion: BaseOperator, Operator {
   }
 
   override func expand(variable: String, value: [Any], explode: Bool) -> String? {
-    if value.count > 0 {
-      return super.expand(variable: variable, value: value, explode: explode)
-    }
+    guard value.count > 0 else { return nil }
 
-    return nil
+    return super.expand(variable: variable, value: value, explode: explode)
   }
 }
 
@@ -419,12 +395,11 @@ class PathStyleParameterExpansion: BaseOperator, Operator {
   }
 
   override func expand(variable: String, value: String, prefix: Int?) -> String {
-    if value.count > 0 {
-      let expandedValue = super.expand(variable: variable, value: value, prefix: prefix)
-      return "\(variable)=\(expandedValue)"
-    }
+    guard value.count > 0 else { return variable }
 
-    return variable
+    let expandedValue = super.expand(variable: variable, value: value, prefix: prefix)
+
+    return "\(variable)=\(expandedValue)"
   }
 
   override func expand(variable: String, value: [Any], explode: Bool) -> String? {
@@ -437,7 +412,7 @@ class PathStyleParameterExpansion: BaseOperator, Operator {
       }
 
       return expandedValue
-    }.joined(separator: joiner)
+      }.joined(separator: joiner)
 
     if !explode {
       return "\(variable)=\(expandedValue)"
@@ -447,12 +422,10 @@ class PathStyleParameterExpansion: BaseOperator, Operator {
   }
 
   override func expand(variable: String, value: [String: Any], explode: Bool) -> String? {
-    let expandedValue = super.expand(variable: variable, value: value, explode: explode)
+    guard let expandedValue = super.expand(variable: variable, value: value, explode: explode) else { return nil }
 
-    if let expandedValue = expandedValue {
-      if !explode {
-        return "\(variable)=\(expandedValue)"
-      }
+    if !explode {
+      return "\(variable)=\(expandedValue)"
     }
 
     return expandedValue
@@ -475,41 +448,38 @@ class FormStyleQueryExpansion: BaseOperator, Operator {
   }
 
   override func expand(variable: String, value: [Any], explode: Bool) -> String? {
-    if value.count > 0 {
-      let joiner = explode ? self.joiner : ","
-      let expandedValue = value.map {
-        let expandedValue = self.expand(value: "\($0)")
+    guard value.count > 0 else { return nil }
 
-        if explode {
-          return "\(variable)=\(expandedValue)"
-        }
+    let joiner = explode ? self.joiner : ","
+    let expandedValue = value.map {
+      let expandedValue = self.expand(value: "\($0)")
 
-        return expandedValue
-      }.joined(separator: joiner)
-
-      if !explode {
+      if explode {
         return "\(variable)=\(expandedValue)"
       }
 
       return expandedValue
+      }.joined(separator: joiner)
+
+    if !explode {
+      return "\(variable)=\(expandedValue)"
     }
 
-    return nil
+    return expandedValue
   }
 
   override func expand(variable: String, value: [String: Any], explode: Bool) -> String? {
-    if value.count > 0 {
-      let expandedVariable = self.expand(value: variable)
+    guard
+      !value.isEmpty,
       let expandedValue = super.expand(variable: variable, value: value, explode: explode)
+      else { return nil }
 
-      if let expandedValue = expandedValue, !explode {
-          return "\(expandedVariable)=\(expandedValue)"
-      }
-
-      return expandedValue
+    if !explode {
+      let expandedVariable = self.expand(value: variable)
+      return "\(expandedVariable)=\(expandedValue)"
     }
 
-    return nil
+    return expandedValue
   }
 }
 
@@ -538,7 +508,7 @@ class FormStyleQueryContinuation: BaseOperator, Operator {
       }
 
       return expandedValue
-    }.joined(separator: joiner)
+      }.joined(separator: joiner)
 
     if !explode {
       return "\(variable)=\(expandedValue)"
